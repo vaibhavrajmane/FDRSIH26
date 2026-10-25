@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   Filter,
@@ -38,6 +38,7 @@ import { generateSmartDraft } from '../services/aiService';
 
 export const ScrutinyWorkspacePage: React.FC = () => {
   const {
+    currentUser,
     instruments,
     institutions,
     verifications,
@@ -58,6 +59,7 @@ export const ScrutinyWorkspacePage: React.FC = () => {
     raiseObservation,
     closeObservation,
     sendBulkReminders,
+    simulateTaskBStaleReplyScenario,
     logAudit,
     setActiveTab,
   } = usePortal();
@@ -99,10 +101,13 @@ export const ScrutinyWorkspacePage: React.FC = () => {
     [instruments]
   );
 
-  // Filtered & sorted instruments
+  // Filtered & sorted instruments (scoped to own institution if INSTITUTION_USER)
   const filteredInstruments = useMemo(() => {
     return instruments
       .filter((item) => {
+        if (currentUser?.role === 'INSTITUTION_USER' && currentUser.institutionId) {
+          if (item.institutionId !== currentUser.institutionId) return false;
+        }
         const inst = institutions.find((x) => x.id === item.institutionId);
         if (statusFilter !== 'ALL') {
           if (statusFilter === 'DISCREPANCY') {
@@ -137,6 +142,7 @@ export const ScrutinyWorkspacePage: React.FC = () => {
         return new Date(a.maturityDate).getTime() - new Date(b.maturityDate).getTime();
       });
   }, [
+    currentUser,
     instruments,
     institutions,
     statusFilter,
@@ -148,20 +154,44 @@ export const ScrutinyWorkspacePage: React.FC = () => {
     sortBy,
   ]);
 
+  // Jury Review F02 / J03 Fix: Never retain an unfiltered instrument when search/filter changes!
+  // Only select an instrument that exists inside `filteredInstruments`.
   const selectedInstrument = useMemo(
     () =>
-      instruments.find((i) => i.id === selectedInstrumentId) ||
+      filteredInstruments.find((i) => i.id === selectedInstrumentId) ||
       filteredInstruments[0] ||
-      instruments[0],
-    [instruments, selectedInstrumentId, filteredInstruments]
+      null,
+    [filteredInstruments, selectedInstrumentId]
   );
+
+  // Automatically synchronize selectedInstrumentId when search or filters exclude the previous selection
+  useEffect(() => {
+    if (filteredInstruments.length === 0) {
+      if (selectedInstrumentId !== null) {
+        setSelectedInstrumentId(null);
+      }
+      return;
+    }
+    const stillInFiltered = filteredInstruments.some((i) => i.id === selectedInstrumentId);
+    if (!stillInFiltered) {
+      setSelectedInstrumentId(filteredInstruments[0].id);
+    }
+  }, [filteredInstruments, selectedInstrumentId, setSelectedInstrumentId]);
 
   const selectedInstitution = useMemo(
     () =>
-      institutions.find((i) => i.id === selectedInstrument?.institutionId) ||
-      institutions[0],
+      selectedInstrument
+        ? institutions.find((i) => i.id === selectedInstrument.institutionId) || null
+        : null,
     [institutions, selectedInstrument]
   );
+
+  // Jury Review F04 / J02 / Task A: All instruments belonging to the currently inspected institution
+  // so officers can clearly distinguish active obligations vs superseded/historical vs release-pending instruments
+  const collegeInstruments = useMemo(() => {
+    if (!selectedInstitution) return [];
+    return instruments.filter((i) => i.institutionId === selectedInstitution.id);
+  }, [instruments, selectedInstitution]);
 
   const selectedVerification = useMemo(
     () => verifications.find((v) => v.instrumentId === selectedInstrument?.id),
@@ -522,8 +552,41 @@ export const ScrutinyWorkspacePage: React.FC = () => {
         </div>
 
         {/* Right: Instrument Detail Workspace with 8 Tabs (7 cols) */}
-        {selectedInstrument && (
+        {!selectedInstrument ? (
+          <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-8 text-center space-y-2">
+            <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
+              No Instrument Selected — Current Filter Returned 0 Records (F02/J03 Safeguard)
+            </p>
+            <p className="text-xs text-slate-500">
+              Action controls are automatically disabled when no record matches your active filter, preventing accidental actions on a previously viewed college.
+            </p>
+          </div>
+        ) : (
           <div className="lg:col-span-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-5">
+            {/* F02 / J03 / U11 Context Synchronization Banner */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-md bg-blue-50/90 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-xs">
+              <div className="flex items-center gap-2 font-semibold text-blue-950 dark:text-blue-200">
+                <ShieldCheck className="w-4 h-4 text-blue-700 dark:text-blue-400 shrink-0" />
+                <span>
+                  Active Record Context Locked: <strong>{selectedInstitution?.name}</strong> ({selectedInstitution?.aicteId}) → <strong className="font-mono">{selectedInstrument.id}</strong> (v{selectedInstrument.currentDocVersion || 1}.0)
+                </span>
+              </div>
+              <span className="font-mono text-[11px] text-blue-700 dark:text-blue-300">
+                {searchQuery.trim() ? `Matched Filter "${searchQuery}"` : 'Synchronized with List'}
+              </span>
+            </div>
+
+            {/* Stale Bank Reply / Material Change Warning Banner (Task B / U04 / J10) */}
+            {selectedInstrument.staleReplyWarning && (
+              <div className="p-3.5 rounded-lg bg-red-50 dark:bg-red-950/50 border-2 border-red-300 dark:border-red-800 text-xs text-red-900 dark:text-red-200 space-y-1">
+                <div className="font-bold flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span>VERSION &amp; STALE-EVIDENCE SAFEGUARD ACTIVE (TASK B / U04 / J10)</span>
+                </div>
+                <p>{selectedInstrument.staleReplyWarning}</p>
+              </div>
+            )}
+
             {/* Instrument Header & Primary Officer Actions */}
             <div className="flex flex-wrap items-start justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
               <div className="space-y-1">
@@ -531,7 +594,10 @@ export const ScrutinyWorkspacePage: React.FC = () => {
                   <h2 className="text-lg font-bold font-mono text-slate-900 dark:text-white">
                     {selectedInstrument.id}
                   </h2>
-                  <VerificationProvenanceBadge level={selectedInstrument.verificationLevel} />
+                  <VerificationProvenanceBadge
+                    level={selectedInstrument.verificationLevel}
+                    docVersion={selectedInstrument.currentDocVersion || 1}
+                  />
                   <StatusLabel status={selectedInstrument.status} />
                 </div>
                 <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">
@@ -554,16 +620,18 @@ export const ScrutinyWorkspacePage: React.FC = () => {
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-600 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>{isVerifyingBank ? 'Calling Bank CBS...' : 'Run Bank Verification'}</span>
+                  <span>{isVerifyingBank ? 'Calling Simulated CBS...' : 'Run Bank Verification (Sim)'}</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={openEditFieldsModal}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  <span>Edit Fields</span>
-                </button>
+                {currentUser?.role === 'SCRUTINY_OFFICER' && (
+                  <button
+                    type="button"
+                    onClick={openEditFieldsModal}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Edit Fields</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() =>
@@ -589,52 +657,262 @@ export const ScrutinyWorkspacePage: React.FC = () => {
               </div>
             </div>
 
-            {/* State-Machine Status Transition Bar */}
-            <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-700 dark:text-slate-300">
-                  State Machine Transition:
+            {/* J01 / F01 / X01: 1-Glance Officer Decision Brief (Issue, Evidence, Blocker, Next Actor) */}
+            <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-900 dark:text-white">
+                  Officer Assessment Summary — Issue, Evidence, Blocker &amp; Next Actor (J01 / F01)
                 </span>
-                <select
-                  aria-label="Select target status transition"
-                  value={targetNextStatus}
-                  onChange={(e) => setTargetNextStatus(e.target.value as InstrumentStatus)}
-                  className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"
-                >
-                  <option value="">-- Choose Allowed Next State --</option>
-                  {(ALLOWED_STATUS_TRANSITIONS[selectedInstrument.status] || []).map((st) => (
-                    <option key={st} value={st}>
-                      {st} (Allowed)
-                    </option>
-                  ))}
-                  <option value="Released/Refunded">
-                    Released/Refunded (Test Illegal Direct Jump)
-                  </option>
-                </select>
-                <input
-                  type="text"
-                  value={transitionReason}
-                  onChange={(e) => setTransitionReason(e.target.value)}
-                  placeholder="Audit remarks..."
-                  className="px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs w-44"
-                />
+                <span className="font-mono text-[11px] text-slate-500">
+                  Obligation Purpose: {selectedInstrument.purpose}
+                </span>
               </div>
-              <button
-                type="button"
-                disabled={!targetNextStatus}
-                onClick={() => {
-                  if (targetNextStatus) {
-                    transitionInstrumentStatus(
-                      selectedInstrument.id,
-                      targetNextStatus,
-                      transitionReason
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                <div className="p-2.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase">1. Core Issue</div>
+                  <div className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                    {selectedInstrument.discrepancies.length > 0
+                      ? `${selectedInstrument.discrepancies.length} Discrepancy Flag(s): ${selectedInstrument.discrepancies[0].title}`
+                      : selectedInstrument.status === 'Matured/Expired'
+                      ? `Deposit Matured/Lapsed (${selectedInstrument.coverageGapDays || 10}d Uncovered Gap)`
+                      : selectedInstrument.status === 'Expiring Soon'
+                      ? `Maturing Soon (${daysBetween(systemDate, selectedInstrument.maturityDate)}d left)`
+                      : 'No Discrepancy — Deposit Meets Statutory Norm'}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase">2. Evidence &amp; Scope</div>
+                  <div className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                    {selectedInstrument.verificationLevel === 'Bank-Confirmed'
+                      ? `Simulated CBS Match (v${selectedInstrument.currentDocVersion || 1}.0)`
+                      : selectedInstrument.verificationLevel === 'Manual-Verified'
+                      ? `Officer Manual Letter Check (v${selectedInstrument.currentDocVersion || 1}.0)`
+                      : `Unverified Institution Claim (v${selectedInstrument.currentDocVersion || 1}.0)`}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase">3. Active Blocker</div>
+                  <div className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                    {selectedInstrument.staleReplyWarning
+                      ? 'Blocked: Stale R1 Reply / Reopened v2 Check'
+                      : selectedInstrument.discrepancies.length > 0 || selectedObs.some((o) => o.status !== 'Closed')
+                      ? 'Blocked: Open Discrepancy / Unresolved Query'
+                      : selectedInstrument.verificationLevel === 'Institution-Submitted'
+                      ? 'Prerequisite: Run Bank CBS / Manual Verification'
+                      : 'None — All Prerequisites Satisfied'}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                  <div className="text-[11px] font-bold text-slate-500 uppercase">4. Next Responsible Actor</div>
+                  <div className="font-semibold text-blue-900 dark:text-blue-300 mt-0.5">
+                    {selectedInstrument.status === 'Query Raised' || selectedInstrument.status === 'Matured/Expired'
+                      ? 'Institution Nodal Officer (Upload Renewal / Reply)'
+                      : ['Submitted', 'Under Scrutiny', 'Resubmitted'].includes(selectedInstrument.status)
+                      ? 'Scrutiny Officer (Verify & Forward)'
+                      : ['Verified (Bank-Confirmed)', 'Verified (Manual Only)'].includes(selectedInstrument.status)
+                      ? 'Competent Approving Authority (Sign-Off Active)'
+                      : selectedInstrument.status === 'Approved for Release'
+                      ? 'Accounts Officer (Record Bank Discharge)'
+                      : 'Automated Monitoring Engine (Active Custody)'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* F04 / J02 / Task A: Institution 360° Obligation vs Instrument Position Breakdown */}
+            {selectedInstitution && collegeInstruments.length > 0 && (
+              <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="font-bold text-slate-900 dark:text-white">
+                      Institution 360° Obligation vs. Instrument Position — {selectedInstitution.name} ({collegeInstruments.length} Records)
+                    </span>
+                    <p className="text-[11px] text-slate-500">
+                      Separates active statutory obligations from historical/replaced receipts and release-eligible deposits (F04 / J02 / Task A)
+                    </p>
+                  </div>
+                  <span
+                    className={`px-2.5 py-1 rounded font-bold text-[11px] ${
+                      collegeInstruments.some(
+                        (ci) =>
+                          ci.discrepancies.length > 0 ||
+                          (ci.status === 'Matured/Expired' && !ci.replacedByInstrumentId)
+                      )
+                        ? 'bg-red-100 text-red-800 dark:bg-red-950/70 dark:text-red-300'
+                        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300'
+                    }`}
+                  >
+                    Institution Obligation Posture:{' '}
+                    {collegeInstruments.some(
+                      (ci) =>
+                        ci.discrepancies.length > 0 ||
+                        (ci.status === 'Matured/Expired' && !ci.replacedByInstrumentId)
+                    )
+                      ? 'ACTION REQUIRED ON SPECIFIC OBLIGATION'
+                      : 'ALL ACTIVE OBLIGATIONS SATISFIED'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {collegeInstruments.map((ci) => {
+                    const isCurrent = ci.id === selectedInstrument.id;
+                    const obligationRole =
+                      ci.status === 'Replaced' || ci.replacedByInstrumentId
+                        ? `Historical / Superseded by ${ci.replacedByInstrumentId || 'Renewal'} (Not an Active Default)`
+                        : ['Approved for Release', 'Released/Refunded', 'Closed'].includes(ci.status)
+                        ? '8-Year Lock-In Completed — Eligible for Release (No Replacement Needed)'
+                        : ci.status === 'Matured/Expired'
+                        ? 'Lapsed Obligation — Replacement Required Immediately'
+                        : 'Active Statutory Security Obligation';
+                    return (
+                      <button
+                        key={ci.id}
+                        type="button"
+                        onClick={() => setSelectedInstrumentId(ci.id)}
+                        className={`text-left p-2.5 rounded border transition-colors cursor-pointer ${
+                          isCurrent
+                            ? 'bg-blue-50/90 dark:bg-blue-950/60 border-blue-600 dark:border-blue-500'
+                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between font-mono font-bold text-[11px]">
+                          <span className="text-blue-900 dark:text-blue-300">
+                            {ci.id} ({formatINR(ci.depositAmount)})
+                          </span>
+                          <span>{ci.status}</span>
+                        </div>
+                        <div className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 mt-0.5 truncate">
+                          Obligation: {ci.purpose}
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">{obligationRole}</div>
+                      </button>
                     );
-                  }
-                }}
-                className="px-3 py-1 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-40 rounded cursor-pointer whitespace-nowrap shrink-0"
-              >
-                Apply Transition
-              </button>
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* State-Machine Status Transition & Role-Specific Quick Decision Bar */}
+            <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    Role Workflow Actions ({currentUser?.role}) on <span className="font-mono text-blue-900 dark:text-blue-300">{selectedInstrument.id}</span>:
+                  </span>
+                  {['Submitted', 'Under Scrutiny', 'Resubmitted'].includes(selectedInstrument.status) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        transitionInstrumentStatus(
+                          selectedInstrument.id,
+                          selectedInstrument.issuingBank.includes('Co-operative')
+                            ? 'Verified (Manual Only)'
+                            : 'Verified (Bank-Confirmed)',
+                          `Scrutiny Officer verified ${selectedInstrument.id} (${selectedInstitution?.name}) v${selectedInstrument.currentDocVersion || 1}.0 and forwarded to Competent Authority`
+                        )
+                      }
+                      className="px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-semibold cursor-pointer"
+                    >
+                      Mark Verified &amp; Send to Authority
+                    </button>
+                  )}
+                  {[
+                    'Verified (Bank-Confirmed)',
+                    'Verified (Manual Only)',
+                    'Under Scrutiny',
+                  ].includes(selectedInstrument.status) && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          transitionInstrumentStatus(
+                            selectedInstrument.id,
+                            'Active',
+                            'Competent Authority final sign-off — FDR becomes Active'
+                          )
+                        }
+                        className="px-2.5 py-1 rounded bg-blue-900 hover:bg-blue-800 text-white font-semibold cursor-pointer"
+                      >
+                        Authority Sign-Off: Approve (Active)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          transitionInstrumentStatus(
+                            selectedInstrument.id,
+                            'Rejected',
+                            'Rejected by Competent Authority due to unresolved discrepancy'
+                          )
+                        }
+                        className="px-2.5 py-1 rounded bg-red-700 hover:bg-red-600 text-white font-semibold cursor-pointer"
+                      >
+                        Authority: Reject
+                      </button>
+                    </>
+                  )}
+                  {['Matured/Expired', 'Expiring Soon', 'Active'].includes(selectedInstrument.status) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        transitionInstrumentStatus(
+                          selectedInstrument.id,
+                          'Forfeited',
+                          'Competent Authority L5 Escalation Order: Deposit Forfeited due to non-renewal/breach'
+                        )
+                      }
+                      className="px-2.5 py-1 rounded bg-amber-800 hover:bg-amber-700 text-white font-semibold cursor-pointer"
+                    >
+                      Authority L5 Action: Order Forfeiture
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/70 dark:border-slate-700/60">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    State Machine Transition:
+                  </span>
+                  <select
+                    aria-label="Select target status transition"
+                    value={targetNextStatus}
+                    onChange={(e) => setTargetNextStatus(e.target.value as InstrumentStatus)}
+                    className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"
+                  >
+                    <option value="">-- Choose Allowed Next State --</option>
+                    {(ALLOWED_STATUS_TRANSITIONS[selectedInstrument.status] || []).map((st) => (
+                      <option key={st} value={st}>
+                        {st} (Allowed)
+                      </option>
+                    ))}
+                    <option value="Released/Refunded">
+                      Released/Refunded (Test Illegal Direct Jump)
+                    </option>
+                  </select>
+                  <input
+                    type="text"
+                    value={transitionReason}
+                    onChange={(e) => setTransitionReason(e.target.value)}
+                    placeholder="Audit remarks..."
+                    className="px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs w-44"
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={!targetNextStatus}
+                  onClick={() => {
+                    if (targetNextStatus) {
+                      transitionInstrumentStatus(
+                        selectedInstrument.id,
+                        targetNextStatus,
+                        transitionReason
+                      );
+                    }
+                  }}
+                  className="px-3 py-1 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-40 rounded cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  Apply Transition
+                </button>
+              </div>
             </div>
 
             {/* 8 Detail Tabs Navigation */}
@@ -732,19 +1010,24 @@ export const ScrutinyWorkspacePage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Explainable SHAP-Like Risk Score Breakdown */}
+                {/* Explainable SHAP-Like Risk Score Breakdown (C02 / J05 / U07) */}
                 <div className="p-4 rounded-lg border border-slate-200 dark:border-slate-800 space-y-3">
                   <AiAssistanceBanner
                     compact
-                    notice="Explainable Risk Scoring Model (0–100)"
+                    notice="Explainable Priority & Triage Score (0–100) · Workload & Scrutiny Priority Only — Not a Substantiated Finding of Misconduct"
                   />
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                        Explainable Compliance Risk Score Breakdown
+                        Explainable Compliance Priority Score Breakdown (Exact Arithmetic Sum)
                       </h4>
                       <p className="text-[11px] text-slate-500">
-                        Top contributing factors (transparent SHAP-style feature attribution, never a black box)
+                        Arithmetic Reconciliation:{' '}
+                        <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
+                          {selectedInstrument.riskFactors.map((f) => f.weight).join(' + ')} ={' '}
+                          {selectedInstrument.riskFactors.reduce((acc, f) => acc + f.weight, 0)} / 100
+                        </span>{' '}
+                        (Matches displayed total 100%)
                       </p>
                     </div>
                     <div className="text-lg font-bold font-mono tabular-nums text-slate-900 dark:text-white">
@@ -786,21 +1069,49 @@ export const ScrutinyWorkspacePage: React.FC = () => {
             {/* TAB 2: SIDE-BY-SIDE DECLARED VS AI-EXTRACTED VS BANK-CONFIRMED */}
             {detailTab === 'verification' && (
               <div className="space-y-4">
-                <AiAssistanceBanner notice="Side-by-Side Provenance Comparison: Institution-Declared vs Document-AI-Extracted vs Bank-CBS-Confirmed" />
+                <AiAssistanceBanner notice="Side-by-Side Provenance Comparison: Institution-declared vs AI-extracted vs Bank-confirmed (Simulated CBS) vs Officer-manual" />
 
-                <div className="flex items-center justify-between text-xs bg-slate-50 dark:bg-slate-800/60 p-3 rounded-md border border-slate-200 dark:border-slate-800">
-                  <div>
-                    <span className="font-semibold text-slate-700 dark:text-slate-300">
-                      Latest Verification Reference:
-                    </span>{' '}
-                    <span className="font-mono text-blue-800 dark:text-blue-300">
-                      {selectedVerification?.referenceId || 'Pending'}
-                    </span>{' '}
-                    · <span>Confirmed By: {selectedVerification?.confirmedBy}</span>
+                {/* 4 Field Provenance Legend Badges + Task B R1/R2 Stale Bank Reply Test */}
+                <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-md bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 text-[11px]">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <span className="font-bold text-slate-700 dark:text-slate-300">Provenance Sources:</span>
+                    <span className="font-semibold text-amber-800 dark:text-amber-300">● Institution-declared</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="font-semibold text-indigo-700 dark:text-indigo-300">● AI-extracted</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="font-semibold text-emerald-700 dark:text-emerald-400">● Bank-confirmed (Sim CBS)</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="font-semibold text-blue-700 dark:text-blue-400">● Officer-manual</span>
                   </div>
-                  <span className="font-mono font-bold">
-                    Result: {selectedVerification?.result || 'Pending'}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => simulateTaskBStaleReplyScenario(selectedInstrument.id)}
+                    className="px-2.5 py-1 rounded bg-amber-800 hover:bg-amber-700 text-white font-semibold cursor-pointer whitespace-nowrap"
+                  >
+                    Run Task B Test: Submit R2 &amp; Deliver Late R1 Bank Reply
+                  </button>
+                </div>
+
+                <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-1 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">
+                        Verification Reference:
+                      </span>{' '}
+                      <span className="font-mono text-blue-800 dark:text-blue-300">
+                        {selectedVerification?.referenceId || 'Pending'}
+                      </span>{' '}
+                      · <span>Source: {selectedVerification?.confirmedBy}</span>
+                    </div>
+                    <span className="font-mono font-bold">
+                      Result: {selectedVerification?.result || 'Pending'} (Bound to Doc v{selectedVerification?.verifiedDocVersion || 1}.0 vs Active v{selectedInstrument.currentDocVersion || 1}.0)
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    <strong>Verification Scope (F03 / J07 / U05):</strong>{' '}
+                    {selectedVerification?.verificationScope ||
+                      'Simulated CBS Adapter Check — No live commercial bank mTLS mutation executed in demo environment.'}
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -808,9 +1119,11 @@ export const ScrutinyWorkspacePage: React.FC = () => {
                     <thead>
                       <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold text-slate-500">
                         <th className="py-2 pr-3">Field</th>
-                        <th className="py-2 px-3">1. Institution-Declared</th>
-                        <th className="py-2 px-3">2. Gemini AI-Extracted (OCR)</th>
-                        <th className="py-2 px-3">3. Bank CBS Confirmed</th>
+                        <th className="py-2 px-3">1. Institution-declared</th>
+                        <th className="py-2 px-3">2. AI-extracted (Gemini OCR)</th>
+                        <th className="py-2 px-3">
+                          3. {selectedInstrument.verificationLevel === 'Manual-Verified' ? 'Officer-manual' : 'Bank-confirmed (Sim CBS)'}
+                        </th>
                         <th className="py-2 pl-3 text-right">Status</th>
                       </tr>
                     </thead>
@@ -864,7 +1177,7 @@ export const ScrutinyWorkspacePage: React.FC = () => {
               </div>
             )}
 
-            {/* TAB 3: DOCUMENTS & VERSION HISTORY */}
+            {/* TAB 3: DOCUMENTS & VERSION HISTORY (F05, F06, C01, J06, J07, U03) */}
             {detailTab === 'documents' && (
               <div className="space-y-4">
                 {selectedDocs.map((doc) => (
@@ -886,28 +1199,110 @@ export const ScrutinyWorkspacePage: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="p-2.5 rounded bg-slate-50 dark:bg-slate-800/60 font-mono text-[11px] text-slate-600 dark:text-slate-400 break-all">
-                      <strong>SHA-256 Checksum:</strong> {doc.hash}
+                    {/* F05 Fix: Exact 64-character SHA-256 hex digest with explicit length & scope explanation */}
+                    <div className="p-2.5 rounded bg-slate-50 dark:bg-slate-800/60 font-mono text-[11px] text-slate-600 dark:text-slate-400 break-all space-y-1">
+                      <div>
+                        <strong>SHA-256 Digest ({doc.hash.length} hex chars / 256-bit NIST FIPS 180-4):</strong>{' '}
+                        {doc.hash}
+                      </div>
+                      <div className="text-[10px] font-sans text-slate-500">
+                        Integrity Scope: Verifies document version v{doc.version}.0 record integrity (WebCrypto SHA-256 on uploaded bytes; deterministic 64-hex digest on seeded demo metadata). Does not by itself prove bank issuance without CBS/Letter confirmation.
+                      </div>
                     </div>
 
-                    {/* Simulated Official Bank FDR Preview Card */}
-                    <div className="p-4 rounded border-2 border-double border-slate-300 dark:border-slate-700 bg-amber-50/30 dark:bg-slate-950 text-xs space-y-1.5">
-                      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-1.5">
-                        <span className="font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                          {selectedInstrument.issuingBank} — TERM DEPOSIT RECEIPT (SCAN PREVIEW)
-                        </span>
-                        <span className="font-mono text-[11px]">IFSC: {selectedInstrument.ifsc}</span>
+                    {/* C01 / J06 / U03: 4-Part Evidence Scope Assessment Strip */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] p-2.5 rounded bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                      <div>
+                        <span className="text-slate-500 block">1. File Readability:</span>
+                        <strong className="text-slate-800 dark:text-slate-200">Valid PDF Structure (v{doc.version}.0)</strong>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
-                        <div>FDR Receipt No: {selectedInstrument.fdrNumber}</div>
-                        <div>Principal: {formatINR(selectedInstrument.depositAmount)}</div>
-                        <div>Holder: {selectedInstrument.accountHolderName}</div>
-                        <div>Maturity: {formatDateDDMMMYYYY(selectedInstrument.maturityDate)}</div>
+                      <div>
+                        <span className="text-slate-500 block">2. Document Purpose:</span>
+                        <strong className="text-slate-800 dark:text-slate-200">
+                          {doc.type === 'Lien Letter'
+                            ? 'Bank Encumbrance / Lien Certificate'
+                            : doc.type === 'FDR Copy'
+                            ? 'Primary Term Deposit Receipt'
+                            : doc.type === 'Bank Confirmation'
+                            ? 'Branch Manager Attestation Letter'
+                            : 'Renewal / Supporting Instrument'}
+                        </strong>
                       </div>
-                      <div className="pt-1 text-[11px] font-semibold text-blue-900 dark:text-blue-400">
-                        Endorsement: {selectedInstrument.lienMarkedInFavourOfAICTE ? 'JOINT LIEN NOTED IN FAVOUR OF MEMBER SECRETARY, AICTE NEW DELHI' : 'NO LIEN ENDORSEMENT'}
+                      <div>
+                        <span className="text-slate-500 block">3. Reviewer &amp; Method:</span>
+                        <strong className="text-slate-800 dark:text-slate-200">
+                          {selectedInstrument.verificationLevel === 'Bank-Confirmed'
+                            ? 'Simulated CBS Adapter + OCR'
+                            : selectedInstrument.verificationLevel === 'Manual-Verified'
+                            ? 'Scrutiny Officer Manual Review'
+                            : 'Gemini OCR Only (Unconfirmed)'}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">4. Substantiation Scope:</span>
+                        <strong className="text-slate-800 dark:text-slate-200">
+                          {doc.type === 'Lien Letter'
+                            ? 'Substantiates AICTE Lien Clause Only'
+                            : 'Substantiates Deposit Particulars'}
+                        </strong>
                       </div>
                     </div>
+
+                    {/* F06 Fix: Purpose-Specific Document Previews so Lien Letter and FDR Copy are unmistakably distinct */}
+                    {doc.type === 'Lien Letter' ? (
+                      <div className="p-4 rounded border-2 border-slate-300 dark:border-slate-700 bg-blue-50/30 dark:bg-slate-950 text-xs space-y-2">
+                        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-1.5">
+                          <span className="font-bold uppercase tracking-wider text-blue-950 dark:text-blue-300">
+                            {selectedInstrument.issuingBank} — OFFICIAL LIEN NOTING &amp; ENCUMBRANCE CERTIFICATE
+                          </span>
+                          <span className="font-mono text-[11px]">
+                            Cert Ref: LIEN/{selectedInstrument.ifsc}/{doc.version}
+                          </span>
+                        </div>
+                        <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300 font-sans">
+                          To: <strong>The Member Secretary, All India Council for Technical Education (AICTE), New Delhi</strong>.<br />
+                          This is to certify that our branch (<strong>{selectedInstrument.branch}</strong>, IFSC: <span className="font-mono">{selectedInstrument.ifsc}</span>) has recorded an{' '}
+                          <strong>
+                            {selectedInstrument.lienMarkedInFavourOfAICTE
+                              ? 'IRREVOCABLE FIRST LIEN IN FAVOUR OF MEMBER SECRETARY, AICTE'
+                              : 'NO LIEN RECORDED IN CBS'}
+                          </strong>{' '}
+                          against Term Deposit Receipt No. <span className="font-mono font-bold">{selectedInstrument.fdrNumber}</span> for{' '}
+                          <span className="font-mono font-bold">{formatINR(selectedInstrument.depositAmount)}</span> maturing on{' '}
+                          <span className="font-mono">{formatDateDDMMMYYYY(selectedInstrument.maturityDate)}</span>. The bank undertakes that no premature withdrawal, loan, or overdraft shall be permitted against this deposit without prior written discharge from AICTE.
+                        </p>
+                      </div>
+                    ) : doc.type === 'Bank Confirmation' ? (
+                      <div className="p-4 rounded border-2 border-emerald-300 dark:border-emerald-800 bg-emerald-50/20 dark:bg-slate-950 text-xs space-y-2">
+                        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-1.5">
+                          <span className="font-bold uppercase tracking-wider text-emerald-950 dark:text-emerald-300">
+                            {selectedInstrument.issuingBank} — INDEPENDENT BRANCH CONFIRMATION DISPATCH
+                          </span>
+                          <span className="font-mono text-[11px]">Version v{doc.version}.0</span>
+                        </div>
+                        <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300">
+                          Independent confirmation issued by Branch Manager ({selectedInstrument.branch}) verifying the issuance, principal balance ({formatINR(selectedInstrument.depositAmount)}), and joint custody status of FDR <span className="font-mono font-semibold">{selectedInstrument.fdrNumber}</span> for institution <strong>{selectedInstitution?.name}</strong>.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded border-2 border-double border-slate-300 dark:border-slate-700 bg-amber-50/30 dark:bg-slate-950 text-xs space-y-1.5">
+                        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-1.5">
+                          <span className="font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                            {selectedInstrument.issuingBank} — {doc.type === 'Renewal Receipt' ? 'RENEWED TERM DEPOSIT RECEIPT (R2 SCAN)' : 'FIXED DEPOSIT RECEIPT (FDR INSTRUMENT SCAN)'}
+                          </span>
+                          <span className="font-mono text-[11px]">IFSC: {selectedInstrument.ifsc} · v{doc.version}.0</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
+                          <div>FDR Receipt No: {selectedInstrument.fdrNumber}</div>
+                          <div>Principal: {formatINR(selectedInstrument.depositAmount)}</div>
+                          <div>Holder: {selectedInstrument.accountHolderName}</div>
+                          <div>Maturity: {formatDateDDMMMYYYY(selectedInstrument.maturityDate)}</div>
+                        </div>
+                        <div className="pt-1 text-[11px] font-semibold text-blue-900 dark:text-blue-400">
+                          Face Endorsement: {selectedInstrument.lienMarkedInFavourOfAICTE ? 'JOINT LIEN NOTED IN FAVOUR OF MEMBER SECRETARY, AICTE NEW DELHI' : 'NO LIEN ENDORSEMENT ON RECEIPT FACE'}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

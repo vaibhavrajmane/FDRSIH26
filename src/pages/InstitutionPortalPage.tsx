@@ -274,10 +274,15 @@ export const InstitutionPortalPage: React.FC = () => {
       {/* 1. MY INSTRUMENTS LIST */}
       {subTab === 'my_instruments' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-              Institution Security Deposits &amp; Next Required Actions
-            </h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                Institution Security Deposits &amp; Next Required Actions (Scoped to {myInstitution.aicteId})
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                RBAC Enforced: You can view only your own college&apos;s FDRs. You cannot view other colleges, approve verifications/releases, or modify verified records.
+              </p>
+            </div>
             <button
               type="button"
               onClick={() => {
@@ -302,62 +307,85 @@ export const InstitutionPortalPage: React.FC = () => {
                   <th className="py-2 px-3">Maturity</th>
                   <th className="py-2 px-3">Provenance</th>
                   <th className="py-2 px-3">Lifecycle Status</th>
-                  <th className="py-2 pl-3 text-right">Next Required Action</th>
+                  <th className="py-2 pl-3 text-right">Next Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {myInstruments.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="py-3 pr-3 font-mono font-bold text-blue-900 dark:text-blue-400">
-                      {item.id}
-                    </td>
-                    <td className="py-3 px-3">
-                      <MaskedField
-                        entityId={item.id}
-                        fieldName="fdrNumber"
-                        value={item.fdrNumber}
-                      />
-                    </td>
-                    <td className="py-3 px-3">{item.issuingBank}</td>
-                    <td className="py-3 px-3 text-right font-mono font-semibold tabular-nums">
-                      {formatINR(item.depositAmount)}
-                    </td>
-                    <td className="py-3 px-3 font-mono tabular-nums">
-                      {formatDateDDMMMYYYY(item.maturityDate)}
-                    </td>
-                    <td className="py-3 px-3">
-                      <VerificationProvenanceBadge level={item.verificationLevel} compact />
-                    </td>
-                    <td className="py-3 px-3">
-                      <StatusLabel status={item.status} />
-                    </td>
-                    <td className="py-3 pl-3 text-right whitespace-nowrap">
-                      <div className="inline-flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPreviousInstrumentId(item.id);
-                            setWizardStep(1);
-                            setSubTab('submit_wizard');
-                          }}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded cursor-pointer"
-                        >
-                          Submit Renewal
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setReleaseTargetId(item.id);
-                            setSubTab('release_wizard');
-                          }}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded cursor-pointer"
-                        >
-                          Request Release
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {myInstruments.map((item) => {
+                  const nextActionLabel =
+                    item.status === 'Query Raised'
+                      ? 'Reply to Query & Upload Document'
+                      : item.status === 'Expiring Soon' || item.status === 'Matured/Expired'
+                      ? 'Upload Renewal FDR Immediately'
+                      : item.status === 'Submitted' || item.status === 'Under Scrutiny'
+                      ? 'Awaiting AICTE Scrutiny & Bank Check'
+                      : 'Compliant · Eligible for Renewal / Release';
+
+                  return (
+                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                      <td className="py-3 pr-3 font-mono font-bold text-blue-900 dark:text-blue-400">
+                        {item.id}
+                      </td>
+                      <td className="py-3 px-3">
+                        <MaskedField
+                          entityId={item.id}
+                          fieldName="fdrNumber"
+                          value={item.fdrNumber}
+                        />
+                      </td>
+                      <td className="py-3 px-3">{item.issuingBank}</td>
+                      <td className="py-3 px-3 text-right font-mono font-semibold tabular-nums">
+                        {formatINR(item.depositAmount)}
+                      </td>
+                      <td className="py-3 px-3 font-mono tabular-nums">
+                        {formatDateDDMMMYYYY(item.maturityDate)}
+                      </td>
+                      <td className="py-3 px-3">
+                        <VerificationProvenanceBadge level={item.verificationLevel} compact />
+                      </td>
+                      <td className="py-3 px-3">
+                        <StatusLabel status={item.status} />
+                      </td>
+                      <td className="py-3 pl-3 text-right whitespace-nowrap">
+                        <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+                          {nextActionLabel}
+                        </div>
+                        <div className="inline-flex items-center gap-1.5">
+                          {item.status === 'Query Raised' && (
+                            <button
+                              type="button"
+                              onClick={() => setSubTab('observations')}
+                              className="px-2.5 py-1 text-[11px] font-semibold text-amber-900 bg-amber-100 hover:bg-amber-200 rounded cursor-pointer"
+                            >
+                              Reply to Query
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviousInstrumentId(item.id);
+                              setWizardStep(1);
+                              setSubTab('submit_wizard');
+                            }}
+                            className="px-2.5 py-1 text-[11px] font-semibold text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded cursor-pointer"
+                          >
+                            Submit Renewal
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReleaseTargetId(item.id);
+                              setSubTab('release_wizard');
+                            }}
+                            className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded cursor-pointer"
+                          >
+                            Request Release
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

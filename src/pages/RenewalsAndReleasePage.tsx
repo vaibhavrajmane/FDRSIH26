@@ -160,6 +160,9 @@ export const ReleaseWorkflowPage: React.FC = () => {
     'Verified compliance conditions and original bank custody records.'
   );
   const [dischargeRef, setDischargeRef] = useState<string>('PFMS-UTR-SBIN2026102499812');
+  const [dischargeProofFile, setDischargeProofFile] = useState<string>(
+    'Bank_Lien_Discharge_Confirmation_Proof.pdf'
+  );
 
   const activeRel =
     releaseRequests.find((r) => r.id === selectedRelId) || releaseRequests[0];
@@ -232,6 +235,34 @@ export const ReleaseWorkflowPage: React.FC = () => {
                 <VerificationProvenanceBadge level={activeInstrument.verificationLevel} />
               </div>
 
+              {/* Accounts & Finance Officer Check: Bank Details & Amount to be Released */}
+              <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <span className="text-slate-500">Issuing Bank &amp; Branch:</span>
+                  <div className="font-semibold text-slate-900 dark:text-white">
+                    {activeInstrument.issuingBank} ({activeInstrument.branch})
+                  </div>
+                </div>
+                <div>
+                  <span className="text-slate-500">IFSC &amp; FDR No:</span>
+                  <div className="font-mono font-semibold text-slate-900 dark:text-white">
+                    {activeInstrument.ifsc} · {activeInstrument.fdrNumber}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-slate-500">Account Holder:</span>
+                  <div className="font-semibold text-slate-900 dark:text-white truncate" title={activeInstrument.accountHolderName}>
+                    {activeInstrument.accountHolderName}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-slate-500">Amount to be Released:</span>
+                  <div className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                    {formatINR(activeInstrument.depositAmount)}
+                  </div>
+                </div>
+              </div>
+
               {/* Automatic Policy Block Banner (Scenario 8) */}
               {activeRel.blockedReason && (
                 <div className="p-4 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-xs text-red-900 dark:text-red-200 space-y-1">
@@ -243,11 +274,16 @@ export const ReleaseWorkflowPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Eligibility Checklist */}
+              {/* Eligibility Checklist with Policy Source & Version Citation (F08 / J11 / U10) */}
               <div className="space-y-2">
-                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                  Automated Statutory Eligibility Checklist
-                </h4>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    Automated Statutory Eligibility Checklist
+                  </h4>
+                  <span className="font-mono text-[11px] text-slate-500">
+                    Policy Catalogue: Configured AICTE APH Rulebook v2026.1 · Clause 8.4 (Case-Specific Lock-In)
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
                   {activeRel.conditionsChecklist.map((c) => (
                     <div
@@ -272,10 +308,47 @@ export const ReleaseWorkflowPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* F07 / J10 / J11: Explicit 3-State Separation (Approval vs Order Issuance vs Completed Bank Settlement) */}
+              <div className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                <div className="font-bold text-slate-900 dark:text-white">
+                  Execution State Separation: Approval vs. Order vs. Completed Bank Discharge (F07 / J10 / J11)
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="p-2.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase">1. Internal Authority Approval</div>
+                    <div className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                      {activeRel.finalDecision === 'Approved' || activeRel.finalDecision === 'Released'
+                        ? 'Sanctioned by Competent Authority'
+                        : activeRel.finalDecision === 'Blocked'
+                        ? 'Blocked by Policy Engine'
+                        : 'Pending Internal Sign-Off'}
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase">2. Release Order Status</div>
+                    <div className="font-semibold text-amber-800 dark:text-amber-300 mt-0.5">
+                      {activeRel.finalDecision === 'Released'
+                        ? 'Issued & Dispatched to Bank'
+                        : activeRel.finalDecision === 'Approved'
+                        ? 'DRAFT ORDER PREVIEW (Awaiting Stage 5)'
+                        : 'Not Yet Generated'}
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase">3. Bank Lien Discharge &amp; Settlement</div>
+                    <div className="font-semibold text-slate-900 dark:text-white mt-0.5">
+                      {activeRel.finalDecision === 'Released' && activeRel.paymentDischargeRef
+                        ? `Executed (UTR: ${activeRel.paymentDischargeRef})`
+                        : 'NOT EXECUTED — Lien Still Active at Bank'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* 5-Stage Approval Pipeline */}
               <div className="space-y-2.5">
                 <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                  Multi-Stage Approval &amp; Discharge Workflow
+                  Multi-Stage Approval &amp; Discharge Workflow (Scrutiny → Accounts → Competent Authority → Discharge &amp; Closure)
                 </h4>
                 <div className="space-y-2">
                   {activeRel.stages.map((st, idx) => (
@@ -312,9 +385,9 @@ export const ReleaseWorkflowPage: React.FC = () => {
               {/* Stage Action Form */}
               <div className="p-4 rounded-lg border border-slate-200 dark:border-slate-800 space-y-3 text-xs">
                 <div className="font-bold text-slate-900 dark:text-white">
-                  Record Stage Decision / Accounts Discharge Reference
+                  Record Stage Decision / Accounts Payment &amp; Discharge Proof
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block font-semibold mb-1">Stage Remarks</label>
                     <input
@@ -326,7 +399,7 @@ export const ReleaseWorkflowPage: React.FC = () => {
                   </div>
                   <div>
                     <label className="block font-semibold mb-1">
-                      Payment / Bank Lien Discharge Reference (Accounts Stage)
+                      Release / Discharge Reference No. (Accounts)
                     </label>
                     <input
                       type="text"
@@ -335,16 +408,33 @@ export const ReleaseWorkflowPage: React.FC = () => {
                       className="w-full px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
                     />
                   </div>
+                  <div>
+                    <label className="block font-semibold mb-1">
+                      Attach Discharge / Payment Proof File
+                    </label>
+                    <input
+                      type="text"
+                      value={dischargeProofFile}
+                      onChange={(e) => setDischargeProofFile(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+                    />
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() =>
-                      advanceReleaseStage(activeRel.id, 'Approved', stageRemarks, dischargeRef)
+                      advanceReleaseStage(
+                        activeRel.id,
+                        'Approved',
+                        stageRemarks,
+                        dischargeRef,
+                        dischargeProofFile
+                      )
                     }
                     className="px-4 py-1.5 rounded bg-emerald-700 hover:bg-emerald-600 text-white font-semibold cursor-pointer"
                   >
-                    Approve Current Stage / Record Discharge
+                    Approve Current Stage / Confirm Payment &amp; Mark Ready for Closure
                   </button>
                   <button
                     type="button"
@@ -364,19 +454,37 @@ export const ReleaseWorkflowPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Printable Official Release Order Letter (Scenario 7) */}
+            {/* Printable Official Release Order Letter (Scenario 7) — With Explicit F07 Draft vs Executed Watermark */}
             {(activeRel.finalDecision === 'Approved' || activeRel.finalDecision === 'Released') && (
               <div className="bg-white dark:bg-slate-900 border-2 border-slate-800 dark:border-slate-600 rounded-xl p-6 space-y-4 text-xs">
+                {activeRel.finalDecision === 'Approved' ? (
+                  <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-200 font-semibold flex items-center justify-between gap-2">
+                    <span>
+                      DRAFT AUTHORIZATION PREVIEW ONLY (F07 / J10): Stage 4 Competent Authority Approval is complete, but Stage 5 (Bank Lien Discharge &amp; Settlement) is still PENDING. Do not treat this preview as an executed bank instruction until Stage 5 is recorded.
+                    </span>
+                    <span className="font-mono font-bold whitespace-nowrap">PENDING STAGE 5 DISCHARGE</span>
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-950 dark:text-emerald-200 font-semibold flex items-center justify-between gap-2">
+                    <span>
+                      EXECUTED &amp; DISCHARGED ORDER (STAGE 5 COMPLETE): Bank Lien Discharge &amp; Settlement Reference ({activeRel.paymentDischargeRef}) recorded by Accounts Officer.
+                    </span>
+                    <span className="font-mono font-bold whitespace-nowrap">DISCHARGE EXECUTED</span>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
                   <div>
                     <div className="font-bold text-blue-900 dark:text-blue-400 uppercase">
                       अखिल भारतीय तकनीकी शिक्षा परिषद · ALL INDIA COUNCIL FOR TECHNICAL EDUCATION
                     </div>
                     <h4 className="text-base font-bold text-slate-900 dark:text-white mt-0.5">
-                      STATUTORY LIEN DISCHARGE &amp; FDR RELEASE ORDER
+                      {activeRel.finalDecision === 'Released'
+                        ? 'EXECUTED STATUTORY LIEN DISCHARGE & FDR RELEASE ORDER'
+                        : 'DRAFT STATUTORY LIEN DISCHARGE AUTHORIZATION (PENDING STAGE 5 DISCHARGE)'}
                     </h4>
                     <div className="font-mono text-slate-500 mt-1">
-                      Order Ref: <strong>{activeRel.releaseOrderNumber}</strong> · Date: 21-Oct-2026
+                      Order Ref: <strong>{activeRel.releaseOrderNumber}</strong> · Date: 21-Oct-2026 · Doc Version: v{activeInstrument.currentDocVersion || 1}.0
                     </div>
                   </div>
                   <DeterministicQrCode
@@ -391,20 +499,28 @@ export const ReleaseWorkflowPage: React.FC = () => {
                   <strong>Subject:</strong> Release of Joint Lien Marked in Favour of Member Secretary, AICTE on Fixed Deposit Receipt No.{' '}
                   <strong className="font-mono">{activeInstrument.fdrNumber}</strong> for{' '}
                   <strong className="font-mono">{formatINR(activeInstrument.depositAmount)}</strong>.<br /><br />
-                  Consequent upon satisfactory completion of the statutory approval lock-in period and clearance from Scrutiny, Vigilance, and Accounts divisions, the Competent Authority, AICTE hereby authorizes the discharge of AICTE's lien on the above FDR held by{' '}
+                  Consequent upon satisfactory completion of the configured approval lock-in period (APH v2026.1) and clearance from Scrutiny, Vigilance, and Accounts divisions, the Competent Authority, AICTE hereby authorizes the discharge of AICTE's lien on the above FDR held by{' '}
                   <strong>{activeInstitution.name} ({activeInstitution.aicteId})</strong>.
-                  {activeRel.paymentDischargeRef && (
+                  {activeRel.paymentDischargeRef ? (
                     <>
                       <br /><br />
-                      <strong>Recorded Bank Discharge Reference:</strong>{' '}
+                      <strong>Recorded Bank Discharge &amp; Settlement Reference (Stage 5):</strong>{' '}
                       <span className="font-mono">{activeRel.paymentDischargeRef}</span>
+                    </>
+                  ) : (
+                    <>
+                      <br /><br />
+                      <strong className="text-amber-700 dark:text-amber-400">
+                        Downstream Responsibility:
+                      </strong>{' '}
+                      Accounts &amp; Finance Officer must verify bank settlement / lien discharge confirmation and record the UTR/Reference in Stage 5 before closing custody.
                     </>
                   )}
                 </p>
 
                 <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800">
                   <span className="font-mono text-[11px] text-slate-500">
-                    Digitally Signed by Dr. Meenakshi Sundaram, IAS (Advisor-I &amp; Competent Authority)
+                    Authorized by Dr. Meenakshi Sundaram, IAS (Advisor-I &amp; Competent Authority) · Prototype Demo Output
                   </span>
                   <button
                     type="button"

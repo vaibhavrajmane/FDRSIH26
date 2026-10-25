@@ -523,9 +523,16 @@ export const AdminAuditPage: React.FC = () => {
     auditEvents,
     users,
     depositNorms,
+    reminderRules,
+    escalationMatrix,
     simulateUnauthorizedAction,
     tamperSingleAuditRecord,
     resetDemoData,
+    createPortalUser,
+    updateDepositNorm,
+    updateReminderRule,
+    updateEscalationRule,
+    addToast,
   } = usePortal();
 
   const [verificationState, setVerificationState] = useState<{
@@ -539,12 +546,45 @@ export const AdminAuditPage: React.FC = () => {
 
   const [entityFilter, setEntityFilter] = useState<string>('ALL');
 
+  // Admin Create User Form State (Page 7 Role 5 Step 1)
+  const [newUserName, setNewUserName] = useState<string>('');
+  const [newUserEmail, setNewUserEmail] = useState<string>('');
+  const [newUserDesignation, setNewUserDesignation] = useState<string>('Assistant Director (Regulation)');
+  const [newUserRole, setNewUserRole] = useState<
+    'SCRUTINY_OFFICER' | 'APPROVING_AUTHORITY' | 'ACCOUNTS_OFFICER' | 'INSTITUTION_USER' | 'SYSTEM_ADMIN'
+  >('SCRUTINY_OFFICER');
+
+  // Admin Configurable Document Checklist State (Page 2 #14 & Page 7 Role 5 Step 2)
+  const [docChecklistItems, setDocChecklistItems] = useState<string[]>([
+    'Signed FDR Copy (Mandatory)',
+    'Issuing Bank Lien Confirmation Letter in favour of AICTE (Mandatory)',
+    'Governing Body / Trust Board Resolution (Mandatory for New/Release)',
+    'Affidavit & University NOC (Mandatory for Course/Institution Closure Release)',
+  ]);
+  const [newChecklistItem, setNewChecklistItem] = useState<string>('');
+
   const handleVerifyHashChain = () => {
     const res = verifyAuditChain(auditEvents);
     setVerificationState({
       checked: true,
       ...res,
     });
+  };
+
+  const handleCreateUserSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserName.trim() || !newUserEmail.trim()) return;
+    const res = createPortalUser({
+      name: newUserName.trim(),
+      email: newUserEmail.trim(),
+      designation: newUserDesignation.trim(),
+      department: 'AICTE Regulation Bureau',
+      role: newUserRole,
+    });
+    if (res.ok) {
+      setNewUserName('');
+      setNewUserEmail('');
+    }
   };
 
   const filteredAudits = useMemo(() => {
@@ -641,9 +681,9 @@ export const AdminAuditPage: React.FC = () => {
 
         {/* Audit Events Table */}
         <div className="flex items-center justify-between pt-2">
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2 text-xs flex-wrap">
             <span className="font-semibold">Filter Entity Type:</span>
-            {['ALL', 'Instrument', 'Verification', 'Observation', 'Release', 'Security', 'AI-Assist'].map(
+            {['ALL', 'Instrument', 'Verification', 'Observation', 'Release', 'Security', 'Config', 'AI-Assist'].map(
               (t) => (
                 <button
                   key={t}
@@ -712,14 +752,69 @@ export const AdminAuditPage: React.FC = () => {
         </div>
       </div>
 
-      {/* RBAC Users, Statutory Deposit Norms & Data-Protection Architecture */}
+      {/* RBAC Users, Create User Form & Configurable Statutory Rules */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-3 text-xs">
+        {/* Left: RBAC Directory + Create User & Assign Role */}
+        <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4 text-xs">
           <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Users className="w-4 h-4 text-blue-700" />
-            <span>RBAC Directory &amp; Statutory Deposit Norms</span>
+            <span>1. RBAC User Directory &amp; Role Provisioning (System Admin)</span>
           </h3>
-          <div className="space-y-2">
+
+          {/* Create User Form */}
+          <form
+            onSubmit={handleCreateUserSubmit}
+            className="p-3.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 space-y-2.5"
+          >
+            <div className="font-bold text-slate-900 dark:text-white">
+              Create User &amp; Assign Role (Requires SYSTEM_ADMIN)
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <input
+                type="text"
+                value={newUserName}
+                onChange={(e) => setNewUserName(e.target.value)}
+                placeholder="Officer Full Name"
+                className="px-2.5 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                required
+              />
+              <input
+                type="email"
+                value={newUserEmail}
+                onChange={(e) => setNewUserEmail(e.target.value)}
+                placeholder="official@aicte-india.org"
+                className="px-2.5 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+                required
+              />
+              <input
+                type="text"
+                value={newUserDesignation}
+                onChange={(e) => setNewUserDesignation(e.target.value)}
+                placeholder="Designation"
+                className="px-2.5 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+              />
+              <select
+                aria-label="Assign User Role"
+                value={newUserRole}
+                onChange={(e) => setNewUserRole(e.target.value as any)}
+                className="px-2.5 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold"
+              >
+                <option value="SCRUTINY_OFFICER">SCRUTINY_OFFICER</option>
+                <option value="APPROVING_AUTHORITY">APPROVING_AUTHORITY</option>
+                <option value="ACCOUNTS_OFFICER">ACCOUNTS_OFFICER</option>
+                <option value="INSTITUTION_USER">INSTITUTION_USER</option>
+                <option value="SYSTEM_ADMIN">SYSTEM_ADMIN</option>
+              </select>
+            </div>
+            <button
+              type="submit"
+              className="px-4 py-1.5 rounded bg-blue-900 hover:bg-blue-800 text-white font-semibold cursor-pointer"
+            >
+              + Create User &amp; Assign Role
+            </button>
+          </form>
+
+          <div className="space-y-2 max-h-60 overflow-y-auto">
             {users.map((u) => (
               <div
                 key={u.id}
@@ -727,7 +822,7 @@ export const AdminAuditPage: React.FC = () => {
               >
                 <div>
                   <div className="font-bold text-slate-900 dark:text-white">{u.name}</div>
-                  <div className="text-slate-500">{u.designation} · {u.department}</div>
+                  <div className="text-slate-500">{u.designation} · {u.email}</div>
                 </div>
                 <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800">
                   {u.role}
@@ -735,61 +830,128 @@ export const AdminAuditPage: React.FC = () => {
               </div>
             ))}
           </div>
+        </div>
 
-          <div className="pt-2 space-y-1.5">
+        {/* Right: Configurable Reminder Days, Escalation Timings, Minimum Deposit Rules & Document Checklists */}
+        <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4 text-xs">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Sliders className="w-4 h-4 text-emerald-700" />
+            <span>2. Configurable Statutory Rules, Reminder Cadence &amp; Checklists</span>
+          </h3>
+
+          {/* Minimum Deposit Norms Config */}
+          <div className="space-y-2">
             <div className="font-bold text-slate-800 dark:text-slate-200">
-              Minimum Statutory Security Deposit Norms (AICTE APH)
+              Minimum Statutory Security Deposit Norms (Editable by Admin)
             </div>
             {depositNorms.map((n) => (
               <div
                 key={n.institutionType}
-                className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800"
+                className="flex flex-wrap items-center justify-between gap-2 py-1.5 border-b border-slate-100 dark:border-slate-800"
               >
-                <span>{n.institutionType} Institutions ({n.minimumLockInYears}-Yr Lock-in)</span>
-                <span className="font-mono font-bold">{formatINR(n.minimumRequiredAmount)}</span>
+                <span className="font-medium">
+                  {n.institutionType} ({n.minimumLockInYears}-Yr Lock-in)
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold">{formatINR(n.minimumRequiredAmount)}</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateDepositNorm({
+                        ...n,
+                        minimumRequiredAmount: n.minimumRequiredAmount + 500000,
+                      })
+                    }
+                    className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 hover:bg-blue-50 text-[11px] font-semibold cursor-pointer"
+                  >
+                    +Rs 5L Norm
+                  </button>
+                </div>
               </div>
             ))}
           </div>
-        </div>
 
-        {/* Data Protection & Security Controls Panel */}
-        <div className="lg:col-span-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-3 text-xs">
-          <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Sliders className="w-4 h-4 text-emerald-700" />
-            <span>Data Protection, Encryption &amp; DPDP Act 2023 Controls</span>
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800">
+          {/* Reminder Cadence & Escalation Timings */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-1.5">
               <div className="font-bold text-slate-900 dark:text-white">
-                1. Encryption in Transit &amp; At Rest
+                Pre-Maturity Reminder Days
               </div>
-              <p className="text-slate-500 mt-1">
-                TLS 1.3 (mTLS for Bank CBS APIs) and AES-256-GCM envelope encryption via NIC KMS for stored FDR scans.
-              </p>
+              <div className="font-mono text-[11px] text-blue-800 dark:text-blue-300">
+                Active Schedule: {reminderRules[0]?.preMaturityDays.join(', ')} days before expiry
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  reminderRules[0] &&
+                  updateReminderRule({
+                    ...reminderRules[0],
+                    preMaturityDays: [90, 60, 30, 15, 7, 1],
+                  })
+                }
+                className="px-2.5 py-1 rounded bg-blue-900 text-white text-[11px] font-semibold cursor-pointer"
+              >
+                Verify / Save T-90..T-1 Schedule
+              </button>
             </div>
-            <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800">
+
+            <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-1.5">
               <div className="font-bold text-slate-900 dark:text-white">
-                2. Field-Level Masking &amp; Reveal Audit
+                Escalation Ladder SLA Timings
               </div>
-              <p className="text-slate-500 mt-1">
-                FDR and account numbers are masked by default (<code className="font-mono">••••1122</code>); every reveal click writes an immutable audit entry.
-              </p>
+              <div className="font-mono text-[11px] text-amber-800 dark:text-amber-300">
+                L1→L5 Timeouts: {escalationMatrix.map((e) => `${e.level}:${e.timeoutDays}d`).join(' · ')}
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  escalationMatrix[2] &&
+                  updateEscalationRule({
+                    ...escalationMatrix[2],
+                    timeoutDays: Math.max(3, escalationMatrix[2].timeoutDays - 1),
+                  })
+                }
+                className="px-2.5 py-1 rounded bg-amber-700 text-white text-[11px] font-semibold cursor-pointer"
+              >
+                Tighten L3 SLA (-1 Day)
+              </button>
             </div>
-            <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800">
-              <div className="font-bold text-slate-900 dark:text-white">
-                3. Session Governance &amp; Parichay 2FA
-              </div>
-              <p className="text-slate-500 mt-1">
-                15-minute idle session timeout with short-lived JWT tokens and role-scoped API middleware.
-              </p>
+          </div>
+
+          {/* Configurable Document Checklist */}
+          <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 space-y-2">
+            <div className="font-bold text-slate-900 dark:text-white">
+              Mandatory Document Checklist (Submission &amp; Release)
             </div>
-            <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800">
-              <div className="font-bold text-slate-900 dark:text-white">
-                4. Zero-Trust AI Guardrails
-              </div>
-              <p className="text-slate-500 mt-1">
-                AI never auto-approves or mutates database rows directly; all AI outputs require explicit human officer confirmation.
-              </p>
+            <ul className="space-y-1 text-[11px] text-slate-600 dark:text-slate-300">
+              {docChecklistItems.map((item, idx) => (
+                <li key={idx} className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-2 pt-1">
+              <input
+                type="text"
+                value={newChecklistItem}
+                onChange={(e) => setNewChecklistItem(e.target.value)}
+                placeholder="Add new mandatory document rule..."
+                className="flex-1 px-2.5 py-1 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (newChecklistItem.trim()) {
+                    setDocChecklistItems((prev) => [...prev, newChecklistItem.trim()]);
+                    setNewChecklistItem('');
+                    addToast('success', 'Checklist Rule Added', 'Updated mandatory document checklist.');
+                  }
+                }}
+                className="px-3 py-1 rounded bg-slate-800 text-white font-semibold cursor-pointer"
+              >
+                Add Rule
+              </button>
             </div>
           </div>
         </div>

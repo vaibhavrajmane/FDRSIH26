@@ -21,28 +21,46 @@ import { usePortal } from '../context/PortalContext';
 export const VerificationProvenanceBadge: React.FC<{
   level: VerificationLevel;
   compact?: boolean;
-}> = ({ level, compact }) => {
+  docVersion?: number;
+}> = ({ level, compact, docVersion = 1 }) => {
   if (level === 'Bank-Confirmed') {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 whitespace-nowrap shrink-0">
+      <span
+        title={`Prototype Sandbox Adapter Match (v${docVersion}.0) — Simulated CBS response; requires production bank mTLS connector for live custody attestation`}
+        className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400 whitespace-nowrap shrink-0"
+      >
         <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-        <span>{compact ? 'Bank-Confirmed' : 'Bank-Confirmed (CBS Verified)'}</span>
+        <span>
+          {compact
+            ? 'Bank-Confirmed (Sim CBS)'
+            : `Bank-Confirmed (Simulated CBS · v${docVersion}.0)`}
+        </span>
       </span>
     );
   }
 
   if (level === 'Manual-Verified') {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400 whitespace-nowrap shrink-0">
+      <span
+        title={`Physical Bank Letter Inspected by Scrutiny Officer (v${docVersion}.0) — Co-operative/Regional Bank without automated CBS API`}
+        className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 dark:text-blue-400 whitespace-nowrap shrink-0"
+      >
         <FileCheck2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
-        <span>Verified (Manual Only)</span>
+        <span>
+          {compact
+            ? 'Verified (Manual Letter)'
+            : `Verified (Officer Manual Letter · v${docVersion}.0)`}
+        </span>
       </span>
     );
   }
 
   if (level === 'Discrepancy-Flagged') {
     return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-400 whitespace-nowrap shrink-0">
+      <span
+        title="Material conflict detected between Institution-Declared, AI-Extracted, or Simulated Bank CBS values"
+        className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-400 whitespace-nowrap shrink-0"
+      >
         <AlertTriangle className="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" />
         <span>Discrepancy-Flagged</span>
       </span>
@@ -50,7 +68,10 @@ export const VerificationProvenanceBadge: React.FC<{
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-400 whitespace-nowrap shrink-0">
+    <span
+      title="Self-declared by Institution Nodal Officer — Not yet independently verified against Bank CBS or physical bank confirmation"
+      className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-400 whitespace-nowrap shrink-0"
+    >
       <Building2 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
       <span>{compact ? 'Institution-Submitted' : 'Institution-Submitted (Unverified)'}</span>
     </span>

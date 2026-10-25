@@ -110,6 +110,8 @@ export interface Instrument {
   demoScenarioLabel?: string;
   assignedOfficerId?: string;
   acknowledgementRef?: string;
+  currentDocVersion?: number;
+  staleReplyWarning?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -145,6 +147,8 @@ export interface VerificationRecord {
   confirmedBy: string;
   timestamp: string;
   referenceId: string;
+  verifiedDocVersion?: number;
+  verificationScope?: string;
   remarks?: string;
 }
 

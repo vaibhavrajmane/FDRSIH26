@@ -586,79 +586,84 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Impact Metrics Panel: "Before vs After" Measurable Improvements */}
+        {/* Impact Metrics Panel: "Before vs After" Simulated Projections (F08 / J11 Qualified) */}
         <div className="lg:col-span-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 flex flex-col justify-between">
           <div className="space-y-4">
             <div className="pb-3 border-b border-slate-200 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-emerald-600" />
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                  Measurable Impact: Manual Legacy vs FDR-Setu
-                </h3>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-emerald-600" />
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                    Projected Impact: Manual Baseline vs FDR-Setu
+                  </h3>
+                </div>
+                <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-800 text-[10px] font-bold">
+                  SIMULATED PROJECTION
+                </span>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Computed from seeded &amp; simulated AICTE Regulation Bureau workflows
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                <strong>Scope Qualification (F08 / J11):</strong> Figures below are <em>modeled prototype projections</em> computed from seeded SIH #26265 scenarios and configured <strong>AICTE APH v2026.1</strong> rules—not audited production telemetry.
               </p>
             </div>
 
             <div className="space-y-3 text-xs">
               <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
                 <div className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-200">
-                  <span>1. Record &amp; Lien Accuracy</span>
+                  <span>1. Projected Record &amp; Lien Accuracy</span>
                   <span className="font-mono text-emerald-700 dark:text-emerald-400">
-                    78.4% → 99.6%
+                    ~78.4% → 99.6% (Est.)
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-500 mt-1">
-                  Eliminates manual data-entry errors via Gemini OCR + Bank CBS API cross-verification.
+                  Modeled reduction in data-entry mismatches via Gemini OCR + Simulated Bank CBS adapter checks.
                 </div>
               </div>
 
               <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
                 <div className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-200">
-                  <span>2. Avg Verification Turnaround</span>
+                  <span>2. Modeled Verification Turnaround</span>
                   <span className="font-mono text-emerald-700 dark:text-emerald-400">
-                    21.0 Days → 1.4 Days
+                    ~21.0 Days → 1.4 Days (Sim)
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-500 mt-1">
-                  Replaces postal bank confirmation letters with instant CBS adapter checks.
+                  Simulated replacement of postal confirmation dispatch with digital CBS adapter workflow.
                 </div>
               </div>
 
               <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
                 <div className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-200">
-                  <span>3. On-Time Renewal Compliance</span>
+                  <span>3. Configured Renewal Window Compliance</span>
                   <span className="font-mono text-emerald-700 dark:text-emerald-400">
-                    61.2% → 96.8%
+                    T-90 / T-60 / T-30 SLA
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-500 mt-1">
-                  Automated T-90/T-60/T-30 bilingual reminders &amp; L1–L5 escalation matrix.
+                  Configured per <strong>AICTE APH v2026.1 Clause 8.4</strong> (8-Yr Lock-In &amp; L1–L5 escalation matrix).
                 </div>
               </div>
 
               <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
                 <div className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-200">
-                  <span>4. Manual Tracking Effort Saved</span>
+                  <span>4. Estimated Administrative Effort Saved</span>
                   <span className="font-mono text-emerald-700 dark:text-emerald-400">
-                    ~420 Hrs / Month
+                    ~420 Hrs / Month (Proj.)
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-500 mt-1">
-                  Replaces 18 regional Excel registers with a single auditable state machine.
+                  Projected benchmark when consolidating fragmented spreadsheet registers into a unified state machine.
                 </div>
               </div>
 
               <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800">
                 <div className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-200">
-                  <span>5. Pending &amp; Lapsed Case Visibility</span>
+                  <span>5. Seeded Portfolio Visibility</span>
                   <span className="font-mono text-emerald-700 dark:text-emerald-400">
-                    Quarterly → Real-Time (100%)
+                    88 Seeded Instruments (100%)
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-500 mt-1">
-                  Instant detection of coverage gaps and cross-institution duplicate FDRs.
+                  Real-time separation of Institution Obligation status vs. individual Instrument status (F04 / J02).
                 </div>
               </div>
             </div>

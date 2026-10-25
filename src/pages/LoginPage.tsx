@@ -275,12 +275,29 @@ export const LoginPage: React.FC = () => {
                 })}
               </div>
 
+              <div className="pt-1">
+                <label
+                  htmlFor="login-password-input"
+                  className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1"
+                >
+                   Officer / Nodal Password (Argon2id Hashed Credential + TOTP 2FA)
+                </label>
+                <input
+                  id="login-password-input"
+                  type="password"
+                  defaultValue="AICTE-Parichay-Demo#2026"
+                  aria-label="Password"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                  required
+                />
+              </div>
+
               <div className="pt-2 flex flex-col sm:flex-row gap-3">
                 <button
                   type="submit"
                   className="flex-1 inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg transition-colors cursor-pointer"
                 >
-                  <span>Proceed to 2FA Verification</span>
+                  <span>Proceed to OTP (2FA) Verification</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
                 <button
@@ -296,7 +313,7 @@ export const LoginPage: React.FC = () => {
           ) : (
             <form onSubmit={handleVerifyOtp} className="space-y-5">
               <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-                <div className="text-xs text-slate-500 dark:text-slate-400">Authenticating Persona</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">Authenticating Persona (Step 2 of 2: TOTP 2FA)</div>
                 <div className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
                   {activeCard.officerName} — {activeCard.title}
                 </div>

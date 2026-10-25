@@ -21,6 +21,7 @@ import { generateSeedData } from '../data/seedData';
 import {
   validateStatusTransition,
   computeAuditEventHash,
+  computeDeterministicHash,
   evaluateDiscrepancies,
   calculateRiskScore,
   canRolePerform,
@@ -29,6 +30,7 @@ import {
   daysBetween,
   formatINR,
   formatDateDDMMMYYYY,
+  validateBankReplyVersion,
 } from '../utils/rules';
 import {
   bankVerificationService,
@@ -37,7 +39,7 @@ import {
 } from '../services/bankVerificationService';
 import { Language } from '../utils/i18n';
 
-const STORAGE_KEY = 'fdr_setu_portal_state_v1';
+const STORAGE_KEY = 'fdr_setu_portal_state_v2';
 
 export interface ToastMessage {
   id: string;
@@ -166,7 +168,8 @@ interface PortalContextValue extends PortalState {
     releaseId: string,
     decision: 'Approved' | 'Rejected' | 'Sent Back',
     remarks: string,
-    dischargeRef?: string
+    dischargeRef?: string,
+    proofFileName?: string
   ) => { ok: boolean; error?: string };
 
   advanceSimulatedTime: (daysToAdd: number) => void;
@@ -174,9 +177,19 @@ interface PortalContextValue extends PortalState {
 
   // Admin & Audit
   simulateUnauthorizedAction: () => void;
+  simulateTaskBStaleReplyScenario: (instrumentId: string) => void;
   tamperSingleAuditRecord: () => void;
   resetDemoData: () => void;
   updateReminderRule: (updated: ReminderRuleConfig) => void;
+  updateDepositNorm: (updated: DepositNormConfig) => void;
+  updateEscalationRule: (updated: EscalationRuleConfig) => void;
+  createPortalUser: (payload: {
+    name: string;
+    email: string;
+    designation: string;
+    department: string;
+    role: UserRole;
+  }) => { ok: boolean; error?: string };
 }
 
 const PortalContext = createContext<PortalContextValue | undefined>(undefined);
@@ -670,7 +683,14 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     updates,
     reason
   ) => {
-    if (!checkPermissionOrDeny('MARK_VERIFIED', instrumentId)) {
+    const isOnlyFlagUpdate =
+      Object.keys(updates).length === 1 && updates.investigationFlag !== undefined;
+    if (
+      !checkPermissionOrDeny(
+        isOnlyFlagUpdate ? 'FLAG_INVESTIGATION' : 'EDIT_INSTRUMENT_FIELDS',
+        instrumentId
+      )
+    ) {
       return { ok: false, error: 'Unauthorized role.' };
     }
     if (!reason || reason.trim().length < 5) {
@@ -681,11 +701,36 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const target = state.instruments.find((i) => i.id === instrumentId);
     if (!target) return { ok: false, error: 'Not found' };
 
+    const materialChanged =
+      (updates.depositAmount !== undefined && updates.depositAmount !== target.depositAmount) ||
+      (updates.maturityDate !== undefined && updates.maturityDate !== target.maturityDate) ||
+      (updates.lienMarkedInFavourOfAICTE !== undefined &&
+        updates.lienMarkedInFavourOfAICTE !== target.lienMarkedInFavourOfAICTE) ||
+      (updates.fdrNumber !== undefined && updates.fdrNumber !== target.fdrNumber);
+
     setState((prev) => {
       const inst = prev.institutions.find((x) => x.id === target.institutionId) || prev.institutions[0];
       const nextInstruments = prev.instruments.map((item) => {
         if (item.id !== instrumentId) return item;
-        const merged: Instrument = { ...item, ...updates, updatedAt: prev.systemDate };
+        const nextDocVer = materialChanged ? (item.currentDocVersion || 1) + 1 : item.currentDocVersion || 1;
+        const merged: Instrument = {
+          ...item,
+          ...updates,
+          currentDocVersion: nextDocVer,
+          // Jury Review J10 / U04: Reopen verification automatically when a material field is altered
+          verificationLevel: materialChanged ? 'Institution-Submitted' : item.verificationLevel,
+          status:
+            materialChanged &&
+            ['Verified (Bank-Confirmed)', 'Verified (Manual Only)', 'Active'].includes(item.status)
+              ? 'Under Scrutiny'
+              : item.status,
+          staleReplyWarning: materialChanged
+            ? `Material change recorded on ${prev.systemDate} (v${nextDocVer}.0): Prior verification (v${
+                nextDocVer - 1
+              }.0) invalidated and reopened for fresh bank/officer check.`
+            : item.staleReplyWarning,
+          updatedAt: prev.systemDate,
+        };
         merged.discrepancies = evaluateDiscrepancies(merged, inst, prev.instruments);
         const openObs = prev.observations.filter(
           (o) => o.instrumentId === item.id && o.status === 'Open'
@@ -701,7 +746,9 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         instruments: nextInstruments,
         auditEvents: appendAudit(
           prev.auditEvents,
-          'UPDATE_INSTRUMENT_FIELDS',
+          materialChanged
+            ? 'MATERIAL_CHANGE_REOPENED_VERIFICATION'
+            : 'UPDATE_INSTRUMENT_FIELDS',
           'Instrument',
           instrumentId,
           JSON.stringify({
@@ -709,13 +756,24 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             maturity: target.maturityDate,
             lien: target.lienMarkedInFavourOfAICTE,
             inv: target.investigationFlag,
+            ver: target.verificationLevel,
           }),
-          `${JSON.stringify(updates)} | Reason: ${reason}`
+          `${JSON.stringify(updates)} | ${
+            materialChanged ? 'Prior verification invalidated & reopened | ' : ''
+          }Reason: ${reason}`
         ),
       };
     });
 
-    addToast('success', 'Instrument Updated', `Changes to ${instrumentId} recorded in immutable audit trail.`);
+    addToast(
+      materialChanged ? 'warning' : 'success',
+      materialChanged
+        ? 'Material Change: Verification Reopened (U04/J10)'
+        : 'Instrument Updated',
+      materialChanged
+        ? `Prior verification on ${instrumentId} invalidated after material field edit; fresh verification required.`
+        : `Changes to ${instrumentId} recorded in immutable audit trail.`
+    );
     return { ok: true };
   };
 
@@ -776,20 +834,23 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     setState((prev) => {
       const nextDocs = [...prev.documents];
+      const existingVersions = prev.documents.filter(
+        (d) => d.instrumentId === obs.instrumentId
+      ).length;
+      const nextVer = existingVersions + 1;
       if (newDocFileName) {
-        const existingVersions = prev.documents.filter(
-          (d) => d.instrumentId === obs.instrumentId
-        ).length;
         nextDocs.unshift({
-          id: `DOC-${obs.instrumentId}-V${existingVersions + 1}`,
+          id: `DOC-${obs.instrumentId}-V${nextVer}`,
           instrumentId: obs.instrumentId,
           type: 'Bank Confirmation',
           fileName: newDocFileName,
           fileSizeKb: 310,
-          version: existingVersions + 1,
+          version: nextVer,
           uploadedBy: currentUser?.name || 'Nodal Officer',
           uploadedAt: prev.systemDate,
-          hash: `b7c91e44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b${existingVersions + 1}`,
+          hash: computeDeterministicHash(
+            `RESUBMIT-DOC|${obs.instrumentId}|V${nextVer}|${newDocFileName}|${prev.systemDate}`
+          ),
           aiFlags: [],
         });
       }
@@ -808,8 +869,14 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             : o
         ),
         instruments: prev.instruments.map((i) =>
-          i.id === obs.instrumentId && i.status === 'Query Raised'
-            ? { ...i, status: 'Resubmitted', updatedAt: prev.systemDate }
+          i.id === obs.instrumentId
+            ? {
+                ...i,
+                currentDocVersion: newDocFileName ? nextVer : i.currentDocVersion || 1,
+                verificationLevel: newDocFileName ? 'Institution-Submitted' : i.verificationLevel,
+                status: i.status === 'Query Raised' ? 'Resubmitted' : i.status,
+                updatedAt: prev.systemDate,
+              }
             : i
         ),
         auditEvents: appendAudit(
@@ -818,7 +885,7 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           'Observation',
           obs.instrumentId,
           `Observation ${obs.id} (Open)`,
-          `Responded: ${responseText.slice(0, 60)}${newDocFileName ? ` + Uploaded ${newDocFileName}` : ''}`
+          `Responded: ${responseText.slice(0, 60)}${newDocFileName ? ` + Uploaded ${newDocFileName} (v${nextVer}.0)` : ''}`
         ),
       };
     });
@@ -1295,6 +1362,81 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     );
   };
 
+  const simulateTaskBStaleReplyScenario = (instrumentId: string) => {
+    const target = state.instruments.find((i) => i.id === instrumentId) || state.instruments[0];
+    if (!target) return;
+
+    const r1Version = target.currentDocVersion || 1;
+    const r2Version = r1Version + 1;
+    const guardCheck = validateBankReplyVersion(r2Version, r1Version);
+
+    setState((prev) => {
+      const r2Doc: PortalDocument = {
+        id: `DOC-${target.id}-R${r2Version}`,
+        instrumentId: target.id,
+        type: 'Renewal Receipt',
+        fileName: `${target.id}_Replacement_Submission_R${r2Version}.pdf`,
+        fileSizeKb: 448,
+        version: r2Version,
+        uploadedBy: 'Institution Nodal Officer (Replacement R2)',
+        uploadedAt: prev.systemDate,
+        hash: computeDeterministicHash(
+          `R2-REPLACEMENT|${target.id}|V${r2Version}|${prev.systemDate}`
+        ),
+        aiFlags: [`Replacement R${r2Version} uploaded prior to R${r1Version} bank reply`],
+      };
+
+      const updatedInstruments = prev.instruments.map((item) => {
+        if (item.id !== target.id) return item;
+        const nextItem: Instrument = {
+          ...item,
+          currentDocVersion: r2Version,
+          verificationLevel: 'Institution-Submitted',
+          status: 'Under Scrutiny',
+          staleReplyWarning: guardCheck.reason,
+          updatedAt: prev.systemDate,
+        };
+        const openObs = prev.observations.filter(
+          (o) => o.instrumentId === item.id && o.status === 'Open'
+        ).length;
+        const risk = calculateRiskScore(nextItem, prev.systemDate, openObs);
+        nextItem.riskScore = risk.score;
+        nextItem.riskFactors = risk.factors;
+        return nextItem;
+      });
+
+      const audits1 = appendAudit(
+        prev.auditEvents,
+        'SUBMIT_REPLACEMENT_VERSION_R2',
+        'Instrument',
+        target.id,
+        `Active Submission R${r1Version} (v${r1Version}.0)`,
+        `Submitted Replacement R${r2Version} (v${r2Version}.0) — Prior verification invalidated`
+      );
+      const audits2 = appendAudit(
+        audits1,
+        'TASK_B_STALE_R1_BANK_REPLY_BLOCKED',
+        'Verification',
+        target.id,
+        `Late Bank CBS Reply for R${r1Version} (v${r1Version}.0) arrived after R${r2Version}`,
+        `BLOCKED: R${r1Version} evidence cannot silently verify R${r2Version} (v${r2Version}.0 remains Under Scrutiny / Unverified)`
+      );
+
+      return {
+        ...prev,
+        instruments: updatedInstruments,
+        documents: [r2Doc, ...prev.documents],
+        auditEvents: audits2,
+      };
+    });
+
+    addToast(
+      'error',
+      `Task B / U04 Guard: Late R${r1Version} Reply Blocked!`,
+      guardCheck.reason || 'Late R1 bank confirmation cannot verify R2.'
+    );
+  };
+
   const updateReminderRule = (updated: ReminderRuleConfig) => {
     if (!checkPermissionOrDeny('MANAGE_SYSTEM_CONFIG', updated.instrumentType)) return;
     setState((prev) => ({
@@ -1312,6 +1454,73 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ),
     }));
     addToast('success', 'Configuration Saved', `Updated reminder rules for ${updated.instrumentType}.`);
+  };
+
+  const updateDepositNorm = (updated: DepositNormConfig) => {
+    if (!checkPermissionOrDeny('MANAGE_SYSTEM_CONFIG', updated.institutionType)) return;
+    setState((prev) => ({
+      ...prev,
+      depositNorms: prev.depositNorms.map((n) =>
+        n.institutionType === updated.institutionType ? updated : n
+      ),
+      auditEvents: appendAudit(
+        prev.auditEvents,
+        'UPDATE_DEPOSIT_NORM_CONFIG',
+        'Config',
+        updated.institutionType,
+        'Previous Norm',
+        `Min: ${formatINR(updated.minimumRequiredAmount)} · Lock-in: ${updated.minimumLockInYears} yrs`
+      ),
+    }));
+    addToast('success', 'Deposit Norm Updated', `Saved statutory norm for ${updated.institutionType}.`);
+  };
+
+  const updateEscalationRule = (updated: EscalationRuleConfig) => {
+    if (!checkPermissionOrDeny('MANAGE_SYSTEM_CONFIG', updated.level)) return;
+    setState((prev) => ({
+      ...prev,
+      escalationMatrix: prev.escalationMatrix.map((e) =>
+        e.level === updated.level ? updated : e
+      ),
+      auditEvents: appendAudit(
+        prev.auditEvents,
+        'UPDATE_ESCALATION_MATRIX_CONFIG',
+        'Config',
+        updated.level,
+        'Previous SLA',
+        `Timeout: ${updated.timeoutDays}d · Action: ${updated.autoAction}`
+      ),
+    }));
+    addToast('success', 'Escalation Rule Updated', `Updated ${updated.level} SLA timeout to ${updated.timeoutDays} days.`);
+  };
+
+  const createPortalUser: PortalContextValue['createPortalUser'] = (payload) => {
+    if (!checkPermissionOrDeny('MANAGE_SYSTEM_CONFIG', 'USER-MGMT')) {
+      return { ok: false, error: 'Unauthorized role.' };
+    }
+    const newUser: PortalUser = {
+      id: `USR-${payload.role.slice(0, 3)}-${String(state.users.length + 1).padStart(2, '0')}`,
+      name: payload.name,
+      email: payload.email,
+      designation: payload.designation,
+      department: payload.department,
+      role: payload.role,
+      active: true,
+    };
+    setState((prev) => ({
+      ...prev,
+      users: [...prev.users, newUser],
+      auditEvents: appendAudit(
+        prev.auditEvents,
+        'CREATE_PORTAL_USER',
+        'Config',
+        newUser.id,
+        'None',
+        `${newUser.name} (${newUser.role} · ${newUser.email})`
+      ),
+    }));
+    addToast('success', 'Portal User Created', `Assigned ${newUser.name} to role ${newUser.role}.`);
+    return { ok: true };
   };
 
   const value = useMemo<PortalContextValue>(
@@ -1356,9 +1565,13 @@ export const PortalProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       advanceSimulatedTime,
       sendBulkReminders,
       simulateUnauthorizedAction,
+      simulateTaskBStaleReplyScenario,
       tamperSingleAuditRecord,
       resetDemoData,
       updateReminderRule,
+      updateDepositNorm,
+      updateEscalationRule,
+      createPortalUser,
     }),
     [
       state,

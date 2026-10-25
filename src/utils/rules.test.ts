@@ -11,7 +11,9 @@ import {
   evaluateDiscrepancies,
   calculateRiskScore,
   canRolePerform,
+  validateBankReplyVersion,
 } from './rules';
+import { generateSeedData } from '../data/seedData';
 import { AuditEvent, Instrument, Institution } from '../types';
 
 test('strict state machine allows valid transitions and blocks illegal ones', () => {
@@ -152,3 +154,38 @@ test('RBAC matrix enforces strict role boundaries', () => {
   assert.equal(canRolePerform('SYSTEM_ADMIN', 'VERIFY_AUDIT_CHAIN'), true);
   assert.equal(canRolePerform('SYSTEM_ADMIN', 'MARK_VERIFIED'), false);
 });
+
+test('F05 / J06: every seeded document SHA-256 checksum is an exact 64-character hex digest', () => {
+  const seed = generateSeedData();
+  assert.ok(seed.documents.length >= 90);
+  for (const doc of seed.documents) {
+    assert.equal(
+      doc.hash.length,
+      64,
+      `Document ${doc.id} (${doc.fileName}) has invalid SHA-256 length ${doc.hash.length}: ${doc.hash}`
+    );
+    assert.match(doc.hash, /^[0-9a-f]{64}$/);
+  }
+});
+
+test('C02 / J05 / U07: visible risk factor weights sum identically to displayed risk score across all instruments', () => {
+  const seed = generateSeedData();
+  for (const inst of seed.instruments) {
+    const sumOfFactors = inst.riskFactors.reduce((acc, f) => acc + f.weight, 0);
+    assert.equal(
+      sumOfFactors,
+      inst.riskScore,
+      `Instrument ${inst.id} has riskScore=${inst.riskScore} but factor sum=${sumOfFactors}`
+    );
+  }
+});
+
+test('Task B / U04 / J07: validateBankReplyVersion blocks stale R1 (v1.0) bank reply when R2 (v2.0) is active', () => {
+  const validCurrent = validateBankReplyVersion(1, 1);
+  assert.equal(validCurrent.accepted, true);
+
+  const staleReply = validateBankReplyVersion(2, 1);
+  assert.equal(staleReply.accepted, false);
+  assert.match(staleReply.reason || '', /Stale Bank Reply Blocked/i);
+});
+

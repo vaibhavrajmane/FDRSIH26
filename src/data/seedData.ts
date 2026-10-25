@@ -18,6 +18,7 @@ import {
   evaluateDiscrepancies,
   calculateRiskScore,
   computeAuditEventHash,
+  computeDeterministicHash,
   formatINR,
 } from '../utils/rules';
 
@@ -460,7 +461,9 @@ export function generateSeedData() {
       version: 1,
       uploadedBy: inst.nodalOfficerName,
       uploadedAt: baseInstrument.createdAt,
-      hash: `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b${String(documents.length + 10).slice(-3)}`,
+      hash: computeDeterministicHash(
+        `FDR-COPY-V1|${baseInstrument.id}|${baseInstrument.fdrNumber}|${baseInstrument.depositAmount}|${baseInstrument.createdAt}`
+      ),
       extractedData,
       aiFlags:
         extractedData.depositAmount !== baseInstrument.depositAmount
@@ -480,7 +483,9 @@ export function generateSeedData() {
         version: 1,
         uploadedBy: inst.nodalOfficerName,
         uploadedAt: baseInstrument.createdAt,
-        hash: `a94a8fe5ccb19ba61c4c0873d391e987982fbbd3f1e2d3c4b5a6978877665${String(documents.length + 10).slice(-3)}`,
+        hash: computeDeterministicHash(
+          `LIEN-CERT-V1|${baseInstrument.id}|${baseInstrument.ifsc}|${baseInstrument.fdrNumber}|AICTE-LIEN`
+        ),
         aiFlags: [],
       });
     }
@@ -510,10 +515,17 @@ export function generateSeedData() {
       result: vRes,
       confirmedBy:
         baseInstrument.verificationLevel === 'Bank-Confirmed'
-          ? `${baseInstrument.issuingBank} CBS Gateway`
+          ? `${baseInstrument.issuingBank} CBS Sandbox Adapter`
           : 'Shri Arvind Kumar Sinha (Scrutiny Officer)',
       timestamp: baseInstrument.updatedAt,
-      referenceId: `CBS-REF-${baseInstrument.id.replace(/[^0-9]/g, '')}-2026`,
+      referenceId: `CBS-SIM-${baseInstrument.id.replace(/[^0-9]/g, '')}-2026`,
+      verifiedDocVersion: 1,
+      verificationScope:
+        baseInstrument.verificationLevel === 'Bank-Confirmed'
+          ? 'Simulated CBS Sandbox Match (Principal, Holder, Maturity & Lien Encumbrance on v1.0)'
+          : baseInstrument.verificationLevel === 'Manual-Verified'
+          ? 'Physical Bank Confirmation Letter Inspected by Scrutiny Officer (v1.0)'
+          : 'OCR Extraction & Checksum Integrity Only — Independent Bank Confirmation Pending',
       fieldsCompared: [
         {
           field: 'fdrNumber',
@@ -578,6 +590,7 @@ export function generateSeedData() {
 
     const fullInstrument: Instrument = {
       ...baseInstrument,
+      currentDocVersion: 1,
       riskScore: 10,
       riskFactors: [],
       discrepancies: [],

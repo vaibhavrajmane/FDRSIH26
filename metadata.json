@@ -1,0 +1,8 @@
+{
+  "name": "FDR-Setu: AICTE Security Deposit & FDR Management Portal",
+  "description": "Centralized lifecycle management, bank verification, AI scrutiny, and compliance monitoring portal for AICTE Fixed Deposit Receipts and Security Deposits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
